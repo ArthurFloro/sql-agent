@@ -1,9 +1,8 @@
 // Prescisamos gerar um arquivo access.log fake (para simular os acessos ao sistema)
 import { createWriteStream, statSync } from "node:fs"
 import { faker } from "@faker-js/faker"
+import { LOG_FILE, LOG_INTERVAL } from "./constants.js"
 
-const LOG_FILE = "access.log"
-const LOG_INTERVAL = 1 * 1000 // 1 segundo
 const maxRecords = Number(process.argv[2] || Infinity)
 
 if (
@@ -29,13 +28,13 @@ function generateUser() {
         job_area: faker.name.jobArea(),
         company: faker.company.name(),
         job_title: faker.name.jobTitle(),
-        id: faker.stringify.uuid(),
     }
 }
 
 function generateLogEntry(user) {
     return {
         ...user,
+        id: faker.string.uuid(),
         timestamp: faker.date.recent().toISOString(),
     }
 }
@@ -81,5 +80,6 @@ while (count < maxRecords) {
 }
 
 stream.end(() => {
+    const { size } = statSync(LOG_FILE)
     console.log(`Geração concluída. Registros: ${count.toLocaleString()} | Tamanho do arquivo: ${convertFromBytesToGB(size)} GB`)
 })
