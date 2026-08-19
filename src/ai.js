@@ -1,5 +1,5 @@
-import { generateText, Output } from "ai"
-import { openai } from "@ai-sdk/openai"
+import { generateText, generateObject } from "ai"
+import { google } from "@ai-sdk/google"
 import { z } from "zod"
 
 const SCHEMA_DESCRIPTION = `
@@ -33,7 +33,8 @@ const BLOCKED_KEYWORDS = [
 ]
 
 export function validateSql(sql) {
-    if (typeof sql !== 'string' || sql.trim()) {
+    // CORREÇÃO AQUI: Adicionado o "!" antes de sql.trim()
+    if (typeof sql !== 'string' || !sql.trim()) {
         throw new Error('SQL vazia')
     }
 
@@ -41,28 +42,30 @@ export function validateSql(sql) {
 
     for (const keyword of BLOCKED_KEYWORDS) {
         if (new RegExp(`\\b${keyword}\\b`, 'i').test(safeSql)) {
-            throw new Error(`Comand bloqueado: ${keyword}`)
+            throw new Error(`Comando bloqueado: ${keyword}`)
         }
     }
 
     return safeSql
 }
 
-const model = openai('gpt-4o-mini')
+const model = google('gemini-3.6-flash')
 
 const sqlSuggestionSchema = z.object({
-    sql: z.string(),
-    explanation: z.string(),
+    sql: z.string().describe("A query SQL gerada"),
+    explanation: z.string().describe("Breve explicação da query"),
 })
 
 export async function generateSqlObject(question) {
-    const { experimental_output } = await generateText({
+    // CORREÇÃO AQUI: Trocado de generateText para generateObject
+    const { object } = await generateObject({
         model,
-        experimental_output: Output.object({ schema: sqlSuggestionSchema }),
+        mode: 'json',
+        schema: sqlSuggestionSchema,
         system: `
       Você é um assistente especialista em SQLite.
 
-      Sua tarefa é gerar uma única query SQL para responder pergunta do(a) usuário(a).
+      Sua tarefa é gerar uma única query SQL para responder a pergunta do(a) usuário(a).
 
       Regras obrigatórias:
       - Gere apenas SELECT.
@@ -80,18 +83,37 @@ export async function generateSqlObject(question) {
     `,
     });
 
-    if (!experimental_output?.sql) {
-        throw new Error('O modelo nao retornou uma sugestão SQL valida.');
+    if (!object?.sql) {
+        throw new Error('O modelo não retornou uma sugestão SQL válida.');
     }
 
     return {
-        sql: validateSql(experimental_output.sql),
-        explanation: experimental_output.explanation,
+        sql: validateSql(object.sql),
+        explanation: object.explanation,
     };
 }
 
-generateSqlObject("Quantos acessos tivemos por localização?")
-    .then((result) => {
-        console.log("SQL Gerada:", result.sql)
-        console.log("Explicação:", result.explanation)
-    })
+// Essa parte estava certinha (aqui usamos generateText mesmo, pois queremos um texto corrido)
+export async function generateTextAnswer({ question, sql, rows }) {
+    const { text } = await generateText({
+        model,
+        system: `
+      Responda em português, de forma objetiva, apenas com base nos dados retornados.
+      Se o resultado estiver vazio, diga isso claramente.
+    `,
+        prompt: `
+      Pergunta original:
+      ${question}
+
+      SQL executada:
+      ${sql}
+
+      Linhas retornadas em JSON:
+      ${JSON.stringify(rows, null, 2)}
+
+      Resposta:
+    `,
+    });
+
+    return text.trim();
+}
